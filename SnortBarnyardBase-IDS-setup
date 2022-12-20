@@ -1,0 +1,377 @@
+
+
+Configuring Snort to Run as a NIDS
+
+
+Install Libraries 
+sudo apt-get install -y build-essential libpcap-dev libpcre3-dev libdumbnet-dev bison flex zlib1g-dev liblzma-dev openssl libssl-dev
+
+
+
+
+
+We have to make some manual some changes in the snort.conf file:
+
+sudo vi /etc/snort/snort.conf
+
+ipvar HOME_NET 10.0.0.0/24  # (line 45) make this match your friendly network or network which you want to protect.
+
+Note: Don't set EXTERNAL_NET to !$HOME NET, since it can cause Snort to miss alerts.
+
+Just make sure below lines are uncommented :
+
+var RULE_PATH /etc/snort/rules                      # line 114
+var SO_RULE_PATH /etc/snort/so_rules                # line 115
+var PREPROC_RULE_PATH /etc/snort/preproc_rules      # line 116
+ 
+var WHITE_LIST_PATH /etc/snort/rules        # line 123
+var BLACK_LIST_PATH /etc/snort/rules        # line 124
+
+
+Un-comment the following line (line 571) by deleting the hash from the beginning of the line:
+
+ include $RULE_PATH/local.rules
+
+#Error checking of Snort configuration file 
+#To get interface name 
+if=$(ip route list | grep default | awk '{print $5} ')
+snort -T -c /etc/snort/snort.conf -i '$if
+
+
+Output of above command:
+
+Snort successfully validated the configuration!
+Snort exiting
+
+
+
+Working and testing on rules:
+
+Open local.rules file 
+sudo vi /etc/snort/rules/local.rules
+
+append the following text and exit:
+
+alert icmp any any -> $HOME_NET any (msg:"ICMP test detected"; GID:1; sid:10000001; rev:001; classtype:icmp-event;)
+
+ 
+What this rule says is that for any ICMP packets it sees from any network to our HOME_NET, generate an alert with the text ICMP test. The other information here (GID, REV, classtype) are used group the rule, and will be helpful when you install BASE.
+
+alert tcp any any -> any 22 ( msg:"SSH Attempt Detected"; GID:2; classtype:tcp-connection; priority:4; sid:10000002; rev:001; )
+
+Barnyard2 doesn’t read meta-information about alerts from the local.rules file. Without this information, Barnyard2 won’t know any details about the rule that triggered the alert, and will generate non-fatal errors when adding new rules with PulledPork (done in a later step). To make sure that barnyard2 knows that the rule we created with unique identifier 10000001 has the message ”ICMP Test Detected”, as well as some other information (please see this blog post for more information). We add the following two lines to the /etc/snort/sid-msg.map file:
+
+vi /etc/snort/sid-msg.map
+1 || 10000001 || 001 || icmp-event || 0 || ICMP Test detected || url,tools.ietf.org/html/rfc792
+
+(the #v2 tells barnyard2 that the next line is the version 2 format, rather than v1)
+
+Since we have made changes to the file that snort loads (local.rules), it is a good idea to test the configuration file again:
+
+sudo snort -T -c /etc/snort/snort.conf -i eth0
+
+Run Snort with the command below, modifying the parameters as required specific for your configuration:
+
+sudo /usr/local/bin/snort -A console -q -u snort -g snort -c /etc/snort/snort.conf -i eth0
+
+Once snort started , Use the another Instance to ping the Interface(IP) on which snort is listening, You should started seeing the alerts on console.
+
+use ctrl-c to stop snort 
+
+3. Installing Barnyard2
+
+Notes: You will be prompted to create both a MySQL root password, as well as a password for a MySQL database snort user. In the examples below, we have chose to use ROOTpassWord as the MySQL root password, and MYSQLSNORTPASSWORD as the MySQL database snort user. Please note the differences when working below.
+
+sudo apt-get install -y mysql-server libmysqlclient-dev mysql-client autoconf libtool libdumbnet-dev libdaq-dev
+
+Append below line in snort config file i.e /etc/snort/snort.conf
+
+output unified2: filename snort.u2, limit 128
+
+This line tells snort to output events in the unified2 binary format (which is easier for snort to output rather than human-readable alerts).
+
+
+cd ~/snort_src
+wget https://github.com/firnsy/barnyard2/archive/master.tar.gz -O barnyard2-Master.tar.gz
+tar zxvf barnyard2-Master.tar.gz
+cd barnyard2-master
+autoreconf -fvi -I ./m4
+
+Barnyard2 needs access to the dnet.h library, which we installed with the Ubuntu libdumbnet package earlier. However, Barnyard2 expects a different file name for this library. Create a soft link from dnet.h to dubmnet.h so there are no issues:
+
+sudo ln -s /usr/include/dumbnet.h /usr/include/dnet.h
+sudo ldconfig
+
+Depending on the architecture of your system (x86 or x64), choose to run one of the following lines to tell Barnyard2 where the MySQL libraries are:
+
+./configure --with-mysql --with-mysql-libraries=/usr/lib/x86_64-linux-gnu
+./configure --with-mysql --with-mysql-libraries=/usr/lib/i386-linux-gnu
+
+
+make
+sudo make install
+
+/usr/local/bin/barnyard2 -V
+
+To configure Snort to use Barnyard2, we need to copy a few files from the source package:
+
+sudo cp ~/snort_src/barnyard2-master/etc/barnyard2.conf /etc/snort/
+
+# the /var/log/barnyard2 folder is never used or referenced
+# but barnyard2 will error without it existing
+sudo mkdir /var/log/barnyard2
+sudo chown snort.snort /var/log/barnyard2
+ 
+sudo touch /var/log/snort/barnyard2.waldo
+sudo chown snort.snort /var/log/snort/barnyard2.waldo
+
+Since Barnyard2 saves alerts to our MySQL database, we need to create that database, as well as a ‘snort’ MySQL user to access that database. Run the following commands to create the database and MySQL user.
+
+mysql -u root -p
+mysql> create database snort;
+mysql> use snort;
+mysql> source ~/snort_src/barnyard2-master/schemas/create_mysql
+mysql> CREATE USER 'snort'@'localhost' IDENTIFIED BY 'MYSQLSNORTPASSWORD';
+mysql> grant create, insert, select, delete, update on snort.* to 'snort'@'localhost';
+mysql> exit
+
+
+sudo vi /etc/snort/barnyard2.conf
+
+output database: log, mysql, user=snort password=MYSQLSNORTPASSWORD dbname=snort host=localhost sensor name=sensor01
+sudo chmod o-r /etc/snort/barnyard2.conf
+
+Now Barnyard2 is configured to work with Snort. To test, let’s run Snort and Barnyard2 and generate some alerts.  First, we run Snort as a daemon. We use the same parameters as before, with the addition of the -D flag, which tells snort to run as a daemon, and we removed -A Console since we don’t want alerts to show on the screen. Take note of the PID of the process so you can kill it later if needed:
+
+sudo /usr/sbin/snort -q -u snort -g snort -c /etc/snort/snort.conf -i eth0 -D
+
+Ping the IP address of the interface specified above (eth0). If you check Snort’s log directory, you should see a file called snort.u2.nnnnnnnnnn (the n’s are replaced by numbers). These are the binary alerts that snort has written out for Barnyard2 to process.
+
+Now we want to tell Barnyard2 to look at these events and load into the snort database instance. We run Barnyard2 with the following flags:
+
+-c /etc/snort/barnyard2.conf        the Barnyard2 configuration file
+-d /var/log/snort                   the location to look for the snort binary output file
+-f snort.u2                         the name of the file to look for.
+-w /var/log/snort/barnyard2.waldo   the path to the waldo file (checkpoint file).
+-u snort                            run Barnyard2 as the following user after startup
+-g snort                            run Barnyard2 as the following group after startup
+
+sudo barnyard2 -c /etc/snort/barnyard2.conf -d /var/log/snort -f snort.u2 -w /var/log/snort/barnyard2.waldo -g snort -u snort
+
+
+you should see output similar to the below:
+
+        --== Initialization Complete ==--
+ 
+  ______   -*> Barnyard2 <*-
+ / ,,_  \  Version 2.1.14 (Build 336)
+ |o"  )~|  By Ian Firns (SecurixLive): http://www.securixlive.com/
+ + '''' +  (C) Copyright 2008-2013 Ian Firns <firnsy@securixlive.com>
+ 
+Using waldo file '/var/log/snort/barnyard2.waldo':
+    spool directory = /var/log/snort
+    spool filebase  = snort.u2
+    time_stamp      = 1412527313
+    record_idx      = 16
+Opened spool file '/var/log/snort/snort.u2.1412527313'
+Closing spool file '/var/log/snort/snort.u2.1412527313'. Read 16 records
+Opened spool file '/var/log/snort/snort.u2.1412528990'
+Waiting for new data
+
+Use ctrl-c to stop barnyard2 from running, then stop the snort Daemon using ps to find and terminate it as in the example below):
+
+
+4. PulledPork
+
+To download the main free ruleset from Snort, you need an oinkcode. Register on the Snort website and save your oinkcode before continuing, as the oinkcode is required for the most popular free ruleset.
+
+
+
+sudo apt-get install -y libcrypt-ssleay-perl liblwp-useragent-determined-perl
+
+cd ~/snort_src
+wget https://github.com/shirkdog/pulledpork/archive/master.tar.gz -O pulledpork-master.tar.gz
+tar xzvf pulledpork-master.tar.gz
+cd pulledpork-master/
+ 
+sudo cp pulledpork.pl /usr/local/bin
+sudo chmod +x /usr/local/bin/pulledpork.pl
+sudo cp etc/*.conf /etc/snort
+
+user@snortserver:~$ /usr/local/bin/pulledpork.pl -V
+PulledPork v0.7.3 - Making signature updates great again!
+ 
+user@snortserver:~$
+
+sudo vi /etc/snort/pulledpork.conf
+
+Make the following changes to the pulledpork.conf file. Anywhere you see ‹oinkcode› enter your oinkcode from the Snort website.  I have included line numbers to help you identify the location of these lines in the configuration file.
+
+
+rule_url=https://snort.org/downloads/community/|community-rules.tar.gz|Community
+rule_url=https://snort.org/downloads/ip-block-list|IPBLOCKLIST|open
+ignore=deleted.rules,experimental.rules,local.rules
+temp_path=/tmp
+rule_path=/etc/snort/rules/snort.rules
+local_rules=/etc/snort/rules/local.rules
+sid_msg=/etc/snort/sid-msg.map
+sid_msg_version=2
+sid_changelog=/var/log/sid_changes.log
+sorule_path=/usr/local/lib/snort_dynamicrules/
+snort_path=/usr/sbin/snort
+config_path=/etc/snort/snort.conf
+distro=Ubuntu-20-4
+block_list=/etc/snort/rules/iplists/default.blocklist
+IPRVersion=/etc/snort/rules/iplists
+snort_control=/usr/local/bin/snort_control
+
+Just make the above files and folders exists in the mentioned path.
+
+
+We want to run PulledPork once manually to make sure it works. We use the following flags:
+
+-c /etc/snort/pulledpork.conf      the location of the snort.conf file
+-l                                 Write detailed logs to /var/log
+
+
+
+
+
+Run the following command:
+
+
+sudo /usr/local/bin/pulledpork.pl -c /etc/snort/pulledpork.conf -l 
+After this command runs (it takes some time), you should now see snort.rules in /etc/snort/rules, and .so rules in /usr/local/lib/snort_dynamicrules. Pulled Pork combines all the rulesets that it downloads into these two files. You need to make sure to add the line: include $RULE_PATH/snort.rules to the snort.conf file, or the pulled pork rules will never be read into memory when Snort starts:
+
+
+sudo vi /etc/snort/snort.conf
+Add the following line to enable snort to use the rules that PulledPork downloaded (line 547), after the line for local.rules:
+
+
+include $RULE_PATH/snort.rules
+Since we have modified snort.conf, we should test that Snort loads correctly in NIDS mode with the PulledPork rules included:
+
+
+sudo snort -T -c /etc/snort/snort.conf -i eth0
+Once that is successful, we want to test that Snort and Barnyard2 load correctly when run manually as daemons:
+
+sudo /usr/local/bin/snort -u snort -g snort -c /etc/snort/snort.conf -i eth0 -D
+sudo barnyard2 -c /etc/snort/barnyard2.conf -d /var/log/snort -f snort.u2 -w /var/log/snort/barnyard2.waldo -g snort -u snort -D
+
+
+mysql -u snort -p -D snort -e "select count(*) from event
+
+sudo crontab -e
+
+01 04 * * * /usr/local/bin/pulledpork.pl -c /etc/snort/pulledpork.conf -l
+
+
+
+5. Systemd Script for Snort and Barnyard2
+
+
+sudo vi /lib/systemd/system/snort.service
+
+[Unit]
+Description=Snort NIDS Daemon
+After=syslog.target network.target
+ 
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/snort -q -u snort -g snort -c /etc/snort/snort.conf -i ens4
+ 
+[Install]
+WantedBy=multi-user.target
+
+
+
+sudo vi /lib/systemd/system/barnyard2.service
+
+[Unit]
+Description=Barnyard2 Daemon
+After=syslog.target network.target
+ 
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/barnyard2 -c /etc/snort/barnyard2.conf -d /var/log/snort -f snort.u2 -q -w /var/log/snort/barnyard2.waldo -g snort -u snort -D -a /var/log/snort/archived_logs
+ 
+[Install]
+WantedBy=multi-user.target
+
+sudo systemctl start snort
+sudo systemctl start barnyard2
+sudo systemctl status snort
+sudo systemctl status barnyard2
+
+
+
+
+6. Installing BASE
+BASE is a simple web GUI for Snort. Alternate products include Snorby, Splunk, Sguil, AlienVault OSSIM, and any syslog server.
+
+# Ubuntu 16 only:
+sudo add-apt-repository ppa:ondrej/php
+sudo apt-get update
+sudo apt-get install -y apache2 libapache2-mod-php5.6 php5.6-mysql php5.6-cli php5.6 php5.6-common php5.6-gd php5.6-cli php-pear php5.6-xml
+
+
+
+sudo pear install -f --alldeps Image_Graph
+
+
+Download and install ADODB:
+
+cd ~/snort_src
+wget https://sourceforge.net/projects/adodb/files/adodb-php5-only/adodb-520-for-php5/adodb-5.20.8.tar.gz
+tar -xvzf adodb-5.20.8.tar.gz
+sudo mv adodb5 /var/adodb
+sudo chmod -R 755 /var/adodb
+
+
+
+Download BASE and copy to apache root
+
+
+cd ~/snort_src
+wget http://sourceforge.net/projects/secureideas/files/BASE/base-1.4.5/base-1.4.5.tar.gz
+tar xzvf base-1.4.5.tar.gz
+sudo mv base-1.4.5 /var/www/html/base/
+
+cd /var/www/html/base
+sudo cp base_conf.php.dist base_conf.php
+
+sudo vi /var/www/html/base/base_conf.php
+
+$BASE_urlpath = '/base';                   # line 50
+$DBlib_path = '/var/adodb/';               #line 80
+$alert_dbname     = 'snort';               # line 102
+$alert_host       = 'localhost';
+$alert_port       = '';
+$alert_user       = 'snort';
+$alert_password   = 'MySqlSNORTpassword';   # line 106
+
+While in the base conf.php file, you will also want to comment out line 457 (we don’t want the DejaVuSans font), and un-comment (remove the two backslashes) from line 459, enabling a blank font. The section for fonts (begining at line 456) should look like this:
+
+
+//$graph_font_name = "Verdana";
+//$graph_font_name = "DejaVuSans";
+//$graph_font_name = "Image_Graph_Font";
+$graph_font_name = "";
+
+
+
+sudo chown -R www-data:www-data /var/www/html/base
+sudo chmod o-r /var/www/html/base/base_conf.php
+
+
+
+sudo service apache2 restart
+
+The last step to configure BASE is done via http:
+
+Browse to http://ServerIP/base/index.php and click on the setup page link (replace ServerIP with the IP of your Snort Server).
+Click on the Create BASE AG button on the upper right of the page.
+Click on the Main page link.
+Note: If you read through the BASE configuration file, there are a number of other options you can implement if you like. A few options are SMTP Email alerts, IP Address to Country Support, and user authentication.
+
+
