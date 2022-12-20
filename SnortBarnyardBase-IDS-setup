@@ -1,6 +1,6 @@
 
 
-Configuring Snort to Run as a NIDS
+ **1. Configuring and Installing Snort to Run as a NIDS on Ubuntu**
 
 
 Install Libraries 
@@ -11,37 +11,38 @@ sudo apt-get install -y build-essential libpcap-dev libpcre3-dev libdumbnet-dev 
 
 
 We have to make some manual some changes in the snort.conf file:
-
-sudo vi /etc/snort/snort.conf
-
+```
+ sudo vi /etc/snort/snort.conf
+```
 ipvar HOME_NET 10.0.0.0/24  # (line 45) make this match your friendly network or network which you want to protect.
 
 Note: Don't set EXTERNAL_NET to !$HOME NET, since it can cause Snort to miss alerts.
 
 Just make sure below lines are uncommented :
-
+```
 var RULE_PATH /etc/snort/rules                      # line 114
 var SO_RULE_PATH /etc/snort/so_rules                # line 115
 var PREPROC_RULE_PATH /etc/snort/preproc_rules      # line 116
  
 var WHITE_LIST_PATH /etc/snort/rules        # line 123
 var BLACK_LIST_PATH /etc/snort/rules        # line 124
-
+```
 
 Un-comment the following line (line 571) by deleting the hash from the beginning of the line:
-
+```
  include $RULE_PATH/local.rules
-
+```
 #Error checking of Snort configuration file 
+```
 #To get interface name 
 if=$(ip route list | grep default | awk '{print $5} ')
 snort -T -c /etc/snort/snort.conf -i '$if
-
+```
 
 Output of above command:
 
-Snort successfully validated the configuration!
-Snort exiting
+```Snort successfully validated the configuration!
+Snort exiting```
 
 
 
