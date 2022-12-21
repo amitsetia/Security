@@ -1,0 +1,104 @@
+Snort IPS Inline Mode on Ubuntu
+
+On 2016-02-18 by Noah Dietrich - Snort, Technology
+Overview
+This guide will cover configuring Snort 2.9.8.x as an NIPS (Network Intrusion Prevention System), also known as “inline” mode on Ubuntu. In inline mode Snort creates a bridge between two network segments, and is responsible for passing traffic bewteen the segments. It can inspect the traffic it passes, as well as drop suspicious traffic. This guide will assume that you have a basic familiarity with Snort, and you should have a Snort system setup and installed (Barnyard2, PulledPork, and a web GUI like BASE or Snorby are optional but helpful). You can follow any of my guides for installing Snort: my in-depth series of articles, my quick install guide, or my guide for installing OpenAppID. I recommend you follow the in-depth series of articles, paired with the OpenAppID article to give you the most fully-featured Snort system.
+
+This guide is tested on Ubuntu 14.04 LTS x64, but should work on any current version of Ubuntu (12, 14, 15) as well as with similar distribution (Mint, Debian, Raspberry Pi, etc.).
+
+Network Configuration
+Snort in inline mode creates a transparent bridge between two network segments. What this means is that Snort has two network interfaces: each on a different network segment. You will configure these interfaces without an IP address and in promiscuous mode. When you run Snort it will listen for traffic on each interface. When a packet arrives on an interface, Snort will inspect the packet based on your rules, then either drop the packet, or send it out the other interface without any modification. Because of this the two network segments that snort bridges must be part of the same logical subnet (and therefore broadcast domain).
+
+You can bridge multiple networks, but remember that you create a bridge between two networks, not between multiple networks (there is a 1 to 1 mapping between bridged networks). If you bridge eth1 to eth2, and bridge eth3 to eth4, traffic will not pass between the two bridges (traffic will not pass between eth1 and eth3 or eth4, for example). Traffic originating on eth1 will only go to eth2, and vice versa. The same holds true for traffic betwee eth3 and eth4.
+
+You will also want a third network interface on the Snort system configured with an IP address for administrative access. If you are running Ubuntu 15.10, your interface names may be much different because interfaces names are assigned as Predictable Network Interface Names.
+
+Note that because the Snort application is responsible for bridging (passing traffic between) the two network segments. If Snort is not running, computers on one network segment will not be able to communicate across the Snort system to computers on the other segment.
+
+We need to configure each bridged interface without an IP address, in promiscuous mode, and disable LRO an GRO. Run sudo vi /etc/network/interfaces, and for each bridged interface, configure similar to the example below. Here I will use eth0 as my administrative interface (with an IP address assigned by DHCP), and I will configure eth1 and eth2 so that they can be bridged by Snort (no IP address, in promiscuous mode, and disabling LRO and GRO):
+
+
+# Administrative interface
+auto eth0
+iface eth0 inet dhcp
+ 
+# First bridged interface
+auto eth1
+iface eth1 inet manual
+    up ifconfig $IFACE 0.0.0.0 up
+    up ip link set $IFACE promisc on
+    post-up ethtool -K $IFACE gro off
+    post-up ethtool -K $IFACE lro off
+    down ip link set $IFACE promisc off
+    down ifconfig $IFACE down
+ 
+# Second Bridged Interface
+auto eth2
+iface eth2 inet manual
+    up ifconfig $IFACE 0.0.0.0 up
+    up ip link set $IFACE promisc on
+    post-up ethtool -K $IFACE gro off
+    post-up ethtool -K $IFACE lro off
+    down ip link set $IFACE promisc off
+    down ifconfig $IFACE down
+If you are bridging multiple networks, eth1 to eth2, and separately eth3 to eth4 for example, make sure every interface that will be bridged is configured as above. Use ifconfig -a to show all interfaces (including interfaces that aren’t configured) to determine your interface names.
+
+Configuration
+To run Snort in inline mode, you need to make a few modifications to your snort.conf, and add a few command line options when you run Snort (either from the command line, or from your startup script).
+
+First, make sure you have the afpacket DAQ available. Run snort ‑‑daq-list and check the output for the DAQ libraries that are installed:
+
+
+snort@snortIPS:~$ snort --daq-list
+    Available DAQ modules:
+    pcap(v3): readback live multi unpriv
+    ipfw(v3): live inline multi unpriv
+    dump(v3): readback live inline multi unpriv
+    afpacket(v5): live inline multi unpriv
+here you can see that afpacket is available, and can do inline in unprivileged mode. Next we add two lines to our snort.conf to enable afpacket in inline mode. Add these two lines to your snort.conf (around line number 168 is probably the correct place for it):
+
+
+config daq: afpacket
+config daq_mode: inline
+Since we have modified our snort.conf, we should test that it works. Run the following command to have Snort verify the configuration. The parameters we pass to Snort will differ slightly from before, because we are enabling inline mode:
+
+
+sudo snort -T -c /etc/snort/snort.conf -Q -i eth1:eth2
+you’ll notice the -Q, and the -i eth1:eth2 flags are new. The -Q flag tells Snort to run in inline mode, while -i eth1:eth2 tells snort to bridge those two interfaces (to be inline between those two interfaces). If you are bridging multiple interfaces, you would use the following format:
+
+
+sudo snort -T -c /etc/snort/snort.conf -Q -i eth1:eth2::eth3:eth4
+where we have a double-colon separating the bridged interface sets.
+
+Running Snort Inline
+Now that we have verified that the Snort configuration is correct, let’s run Snort from the command line, and output alerts directly to the screen.
+Add the following alert to your local.rules file, and make sure that Snort loads it by testing your configuration and scrolling up to see that the rule is loaded (if you need help with this, please see this article). This rule will generate an alert whenever it sees an ICMP message (a ping), which makes testing easy.
+
+
+alert icmp any any -> $HOME_NET any (msg:"ICMP test detected"; GID:1; sid:10000001; rev:001; classtype:icmp-event;)
+test snort again as above, and scroll up through the output to make sure the one ICMP rule loads. If it doesn’t show as loaded, make sure you have included your local.rules file in your snort.conf.
+
+Next, we will run Snort in inline mode. We add a couple of flags here:
+-A Console will cause snort to generate fast alerts out to the console (the screen for us to see)
+-N will cause snort to not write any output files to your output directory.
+Run the following:
+
+
+sudo /usr/local/bin/snort -A console -Q -c /etc/snort/snort.conf -i eth1:eth2 -N
+and once Snort is loaded (you’ll see the message: Commencing packet processing), generate a ping across the bridged interface. A good test is to have one computer (the client) on one side of the bridge with a static IP, and the gateway on the other side of the bridge. Ping the gateway from the client (they will both need IP addresses on the same subnet), and the traffic should cross the bridged interface. When Snort passes the traffic between the networks, you should see an alert generated on the screen (because of our ICMP rule created above). Snort should outpout something similar to the following:
+
+
+02/15-19:30:05.602117  [**] [1:10000001:1] ICMP test detected [**] [Classification: Generic ICMP event] [Priority: 3] {ICMP} 10.0.0.1 -> 10.0.0.116
+hit ctrl-c to stop Snort from running. The ping should have succeeded between the client and the gateway, because the ICMP rule was written as an alert rather than a drop rule (the first part of the rule). If you check the ARP table on your client, with arp -a, you will notice that the MAC address of the gateway is correct. This shows you that Snort is not modifying the packet in any way as it moves it from one network segment to the other. This is how DHCP requests and other traffic can correctly move between segments without any issues.
+
+Next we will change the ICMP rule to drop traffic instead of generating an alert.
+
+Dropping Traffic
+To have Snort drop traffic, you just need to modify the rule created above in your local rules from alert to drop. It should now look like this:
+
+
+drop icmp any any -> $HOME_NET any (msg:"ICMP test detected"; GID:1; sid:10000001; rev:001; classtype:icmp-event;)
+restart Snort as above, and test your ping again between your client and the gateway. The ping should fail, and Snort should output something similar to the following:
+
+
+02/15-19:33:38.952784  [Drop] [**] [1:10000001:1] ICMP test detected [**] [Classification: Generic ICMP event] [Priority: 3] {ICMP} 10.0.0.116 -> 10.0.0.1
