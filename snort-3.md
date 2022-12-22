@@ -69,5 +69,66 @@ Install tools required for compiling the source from github:
   wget https://github.com/snort3/snort3/archive/refs/tags/3.1.47.0.tar.gz
   tar zxvf 3.1.47.0.tar.gz
   cd snort3-3.1.47.0/
-  ./configure_cmake.sh --prefix=/usr/local --enable-tcmalloc
   ```
+  `./configure_cmake.sh --prefix=/usr/local --enable-tcmalloc`
+  
+  After successful completion of complition you will see output like this
+  
+  ```
+  snort version 3.1.47.0
+
+            Install options:
+                prefix:     /usr/local
+                includes:   /usr/local/include/snort
+                plugins:    /usr/local/lib/snort
+
+            Compiler options:
+                CC:             /usr/bin/cc
+                CXX:            /usr/bin/c++
+                CFLAGS:            -fvisibility=hidden   -DNDEBUG -g -ggdb  -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free  -O2 -g -DNDEBUG
+                CXXFLAGS:          -fvisibility=hidden   -DNDEBUG -g -ggdb  -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free  -O2 -g -DNDEBUG
+                EXE_LDFLAGS:
+                MODULE_LDFLAGS:
+
+            Feature options:
+                DAQ Modules:    Static (afpacket;bpf;dump;fst;gwlb;nfq;pcap;savefile;trace)
+                libatomic:      System-provided
+                Hyperscan:      OFF
+                ICONV:          ON
+                Libunwind:      ON
+                LZMA:           ON
+                RPC DB:         Built-in
+                SafeC:          OFF
+                TCMalloc:       ON
+                JEMalloc:       OFF
+                UUID:           ON
+            -------------------------------------------------------
+
+            -- Configuring done
+            -- Generating done
+            -- Build files have been written to: /root/snort_src/snort3-3.1.47.0/build
+            ```
+      ```
+      cd build
+      make
+      make install 
+      ldconfig
+      ```
+After successfully installation
+         ```
+         root@k8samit-1:~/snort_src/snort3-3.1.47.0/build# snort -V
+
+   ,,_     -*> Snort++ <*-
+  o"  )~   Version 3.1.47.0
+   ''''    By Martin Roesch & The Snort Team
+           http://snort.org/contact#team
+           Copyright (C) 2014-2022 Cisco and/or its affiliates. All rights reserved.
+           Copyright (C) 1998-2013 Sourcefire, Inc., et al.
+           Using DAQ version 3.0.10
+           Using LuaJIT version 2.1.0-beta3
+           Using OpenSSL 1.1.1  11 Sep 2018
+           Using libpcap version 1.8.1
+           Using PCRE version 8.39 2016-06-14
+           Using ZLIB version 1.2.11
+           Using LZMA version 5.2.2
+         ```
