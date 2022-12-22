@@ -51,6 +51,7 @@ Install tools required for compiling the source from github:
  ```
  
  ##Install Gperftools(google’s thread-caching malloc (used in chrome). Tcmalloc is a memory allocator that’s optimized for high concurrency situations which will provide better speed for the trade-off of higher memory usage. We don’t want the version of tcmalloc from the repositories (version 2.5 in libgoogle-perftools-dev) as they don’t work with Snort. Tcmalloc is optional but recommended:)
+    
     ``` 
     wget https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz
     tar xzf  gperftools-2.10.tar.gz
@@ -60,6 +61,7 @@ Install tools required for compiling the source from github:
     #Install it with the following command:
       make
       make install
+      
     ```
     
  ## Install Snort
