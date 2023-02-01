@@ -1,0 +1,57 @@
+RATE LIMITING:
+Rate Limiting or Rate-based rules protects your infrastructure from a immense volume of requests that flood your instances and block access for legitimate users.
+
+Rate limiting can do the following:
+
+Prevent any particular client from exhausting application resources.
+Protect your application instances from erratic and unpredictable spikes in the rate of client requests.
+Google Cloud Armor has two types of rate-based rules:
+
+Throttle: This helps to enforce a maximum request limit per client or across all clients by throttling individual clients to a user-configured threshold.
+Rate-based ban: This helps you to apply rate limit requests that match a rule on a per-client basis and then temporarily ban / deny the access of those clients for a configured period of time if they exceed a user-configured threshold.
+
+
+
+1. Example: The following example creates Cloud Armor Rule of Throttling using rate limiting where the request header contains ‘test.armor.org’ host and path matches /test
+
+gcloud compute security-policies rules create 103 \
+  -- security-policy=${POLICYNAME} \
+  -- expression=”request.headers[‘host’].contains(‘xyz.example.com’) && request.path.matches(‘/v1/sessions’)” \
+  -- action=throttle \
+  -- rate-limit-threshold-count=15 \
+  -- rate-limit-threshold-interval-sec=60 \
+  -- conform-action=allow \
+  -- exceed-action=deny-429 \
+  -- enforce-on-key=HTTP-HEADER \
+  -- enforce-on-key-name=’User-Agent’
+
+
+2. Rate Limit based ban on based of request Path and Request method:
+
+gcloud compute security-policies rules create 10007 \
+    --security-policy backend-apiproxy-external-security-policy     \
+    --expression="request.method('POST') && request.path.matches('/v5/sessions.json') "          \
+    --action=rate-based-ban             \
+    --rate-limit-threshold-count=5 \
+    --rate-limit-threshold-interval-sec=300 \
+    --ban-duration-sec=300            \
+    --conform-action allow          \
+    --exceed-action=deny-404       \
+    --enforce-on-key=ALL      \
+    --project=viki-staging-k8s
+
+3. The following example creates Cloud Armor Rule of Ban the IP for 180 seconds using rate limiting on the /app-server path with a rate limit of 10 requests per 1 minute.
+
+gcloud compute security-policies rules create 100 \
+  -- security-policy=${POLICYNAME} \
+  -- expression=”request.path.matches(‘/v1/sessions’)” \
+  -- action=rate-based-ban \
+  -- rate-limit-threshold-count=10 \
+  -- rate-limit-threshold-interval-sec=60 \
+  -- ban-duration-sec=180 \
+  -- conform-action=allow \
+  -- exceed-action=deny-429 \
+  -- enforce-on-key=IP
+
+
+
