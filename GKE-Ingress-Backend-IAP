@@ -1,0 +1,60 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: config-default
+spec:
+  iap:
+    enabled: true
+    oauthclientCredentials:
+      secretName: my-secret
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: tls-1-2-policy
+spec:
+  sslPolicy: tls-1-2-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    cloud.google.com/backend-config: '{"default": "my-backendconfig"}'
+    xxxxx
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    ingress.gcp.kubernetes.io/pre-shared-cert: 
+    ingress.kubernetes.io/backends: 
+    ingress.kubernetes.io/https-forwarding-rule: 
+    ingress.kubernetes.io/https-target-proxy: 
+    ingress.kubernetes.io/ssl-cert: 
+    ingress.kubernetes.io/url-map: 
+    kubernetes.io/ingress.allow-http: "false"
+    kubernetes.io/ingress.global-static-ip-name: ip-gke-ingress-public
+    networking.gke.io/managed-certificates: ci-staging,jenkins-staging,qa-panel-staging,wusong-edge-staging
+    networking.gke.io/v1beta1.FrontendConfig: tls-1-2-policy
+  name: gke-ingress
+  namespace: staging
+spec:
+  rules:
+  - host: qa-panel-staging.example.net
+    http:
+      paths:
+      - backend:
+          service:
+            name: gke-ingress-qa-panel
+            port:
+              number: 80
+        pathType: ImplementationSpecific
+  - host: ci-staging.example.net
+    http:
+      paths:
+      - backend:
+          service:
+            name: gke-ingress-wusong
+            port:
+              number: 80
+        pathType: ImplementationSpecific
